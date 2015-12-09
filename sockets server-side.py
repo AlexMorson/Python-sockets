@@ -12,11 +12,19 @@ def getConnection():
     c.settimeout(1.0)
     return c,addr
 
+def processData(data):
+    if data[:5] == "eval ":
+        try:
+            return data[5:] + "  =>  " + str(eval(data[5:]))
+        except:
+            return data[5:] + "  =>  " + sys.exc_info()[0]
+    else:
+        return data
+
 s.listen(5)
 c,addr = getConnection()
 
 while 1:
-    data = ""
     while data == "":
         try:
             data = c.recv(1024).decode()
@@ -29,21 +37,17 @@ while 1:
                 c,addr = getConnection()
     data = data[1:]
 
-
-    if data[:5] == "eval ":
-        try:
-            returnValue = data[5:] + " => " + str(eval(data[5:]))
-        except Exception as e:
-            returnValue = data[5:] + " => " + str(type(e).__name__)
-    else:
-        returnValue = data
+    response = processData(data)
     
     print("Client ("+str(addr)+") >> ",data)
+    
     if data == "quit":
         c.close()
+
     try:
-        c.send(("@"+returnValue).encode())
+        c.send(("~"+returnValue).encode())
     except socket.error:
         print(addr,"has disconnected.")
         c,addr = getConnection()
+
 s.close()
