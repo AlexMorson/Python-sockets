@@ -18,7 +18,7 @@ def recieveThread(s):
         except socket.error:
             s.close()
             with prnt_l:
-                print("You were disconnected.")
+                print("Lost connection to server.")
             running = False
             return
         except socket.timeout:
@@ -34,7 +34,7 @@ def recieveThread(s):
                 except socket.error:
                     s.close()
                     with prnt_l:
-                        print("You were disconnected.")
+                        print("Lost connection to server.")
                     running = False
                     return
             if data[0] == "m":

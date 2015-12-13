@@ -19,10 +19,7 @@ def recieveThread(c,addr):
         except (socket.error,socket.timeout):
             c.close()
             print("Closed connection from",addr)
-            c,addr = s.accept()
-            c.settimeout(5.0)
-            print("Got connection from",addr)
-            threading.Thread(target=recieveThread,args=(c,addr)).start()
+            getNewConnection()
             return
         for data in recievedData:
             if data[0] == "h":
@@ -31,27 +28,19 @@ def recieveThread(c,addr):
                 except socket.error:
                     c.close()
                     print("Closed connection from",addr)
-                    c,addr = s.accept()
-                    c.settimeout(5.0)
-                    print("Got connection from",addr)
-                    threading.Thread(target=recieveThread,args=(c,addr)).start()
+                    getNewConnection()
                     return
             if data[0] == "m":
                 with msg_l:
                     inMessages.append(data[1])
 
-        while outMessages != []:
-            with out_l:
-                try:
-                    c.send(outMessages.pop())
-                except socket.error:
-                    c.close()
-                    print("Closed connection from",addr)
-                    c,addr = s.accept()
-                    c.settimeout(5.0)
-                    print("Got connection from",addr)
-                    threading.Thread(target=recieveThread,args=(c,addr)).start()
-                    return
+def getNewConnection():
+    c,addr = s.accept()
+    c.settimeout(5.0)
+    with con_l:
+        connAddr[0],connAddr[1] = c,addr
+    print("Got connection from",addr)
+    threading.Thread(target=recieveThread,args=(c,addr)).start()
 
 def processData(data):
     if data[:5] == "eval ":
@@ -72,22 +61,22 @@ s.bind((host,port))
 print("Connection:\nHost -",host,"\nPort -",port)
 s.listen(5)
 
+connAddr = [None,None]
 inMessages = [] #Per user..
-outMessages = []
 msg_l = threading.Lock()
+con_l = threading.Lock()#Only needed when changing
 prnt_l = threading.Lock()
-out_l = threading.Lock()
 
-c,addr = s.accept()
-c.settimeout(5.0)
-print("Got connection from",addr)
-threading.Thread(target=recieveThread,args=(c,addr)).start()
+getNewConnection()
 while 1:
     if inMessages != []:
         while inMessages != []:
             with msg_l:
                 returnValue = processData(inMessages.pop())
+            returnValue = str(connAddr[1][0]) + " - " + str(connAddr[1][1]) + " >> " + returnValue
             with prnt_l:
-                print(addr[0],"-",addr[1],">>",returnValue)
-            with out_l:
-                outMessages.append(json.dumps(["m",addr[0]+" - "+str(addr[1])+" >> "+returnValue]).encode())
+                print(returnValue)
+            try:
+                connAddr[0].send(json.dumps(["m",returnValue]).encode())
+            except socket.error:
+                continue #Recieve thread will get it, and don't want to risk trying to get 2 connections
