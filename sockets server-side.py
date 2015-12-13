@@ -10,7 +10,7 @@ def convert(data):
 			data.insert(char,',')
 	return "".join(['[']+data[1:]+[']'])
 
-def recieveThread(c,addr):
+def recieveThread(c,addr,name,msg_l,inMessages):
     #Send initial heartbeat
     c.send(json.dumps(["h","#"]).encode())
     while 1:
@@ -18,8 +18,15 @@ def recieveThread(c,addr):
             recievedData = json.loads(convert(c.recv(1024).decode()))
         except (socket.error,socket.timeout):
             c.close()
-            print("Closed connection from",addr)
-            getNewConnection()
+            with conn_l:
+                conns.remove((c,addr))
+            with prnt_l:
+                print("Closed connection from",addr)
+            for ca in conns:
+                try:
+                    ca[0].send(json.dumps(["m",name+" left."]).encode())
+                except socket.error:
+                    continue
             return
         for data in recievedData:
             if data[0] == "h":
@@ -27,20 +34,63 @@ def recieveThread(c,addr):
                     c.send(json.dumps(["h","#"]).encode())
                 except socket.error:
                     c.close()
-                    print("Closed connection from",addr)
-                    getNewConnection()
+                    with conn_l:
+                        conns.remove((c,addr))
+                    with prnt_l:
+                        print("Closed connection from",addr)
+                    for ca in conns:
+                        try:
+                            ca[0].send(json.dumps(["m",name+" left."]).encode())
+                        except socket.error:
+                            continue #Will close socket later
                     return
             if data[0] == "m":
                 with msg_l:
                     inMessages.append(data[1])
 
-def getNewConnection():
-    c,addr = s.accept()
-    c.settimeout(5.0)
-    with con_l:
-        connAddr[0],connAddr[1] = c,addr
-    print("Got connection from",addr)
-    threading.Thread(target=recieveThread,args=(c,addr)).start()
+def mainThread(c,addr):
+    msg_l = threading.Lock()
+    inMessages = []
+
+    try:
+        name = json.loads(convert(c.recv(1024).decode()))[0][1]
+    except (socket.error,socket.timeout):
+        c.close()
+        with conn_l:
+            conns.remove((c,addr))
+        with prnt_l:
+            print("Closed connection from",addr)
+        for ca in conns:
+            try:
+                ca[0].send(json.dumps(["m",str(addr[0])+" - "+str(addr[1])+" left."]).encode())
+            except socket.error:
+                continue #Recieve thread will get it
+
+    for ca in conns:
+        if ca[0] != c:
+            try:
+                ca[0].send(json.dumps(["m",name+" has connected."]).encode())
+            except socket.error:
+                continue #Recieve thread will get it
+
+    with prnt_l:
+        print(addr[0],"-",addr[1],"is",name)
+    
+    threading.Thread(target=recieveThread,args=(c,addr,name,msg_l,inMessages)).start()
+    
+    while 1:
+        if inMessages != []:
+            while inMessages != []:
+                with msg_l:
+                    returnValue = processData(inMessages.pop())
+                returnValue = name + " >> " + returnValue
+                with prnt_l:
+                    print(returnValue)
+                for ca in conns:
+                    try:
+                        ca[0].send(json.dumps(["m",returnValue]).encode())
+                    except socket.error:
+                        continue #Recieve thread will get it
 
 def processData(data):
     if data[:5] == "eval ":
@@ -58,25 +108,17 @@ s = socket.socket()
 host = socket.gethostname()
 port = 12346
 s.bind((host,port))
-print("Connection:\nHost -",host,"\nPort -",port)
+print("Connection:\nHost -",host,"\nPort -",port,"\n")
 s.listen(5)
 
-connAddr = [None,None]
-inMessages = [] #Per user..
-msg_l = threading.Lock()
-con_l = threading.Lock()#Only needed when changing
 prnt_l = threading.Lock()
+conn_l = threading.Lock()
+conns = []
 
-getNewConnection()
 while 1:
-    if inMessages != []:
-        while inMessages != []:
-            with msg_l:
-                returnValue = processData(inMessages.pop())
-            returnValue = str(connAddr[1][0]) + " - " + str(connAddr[1][1]) + " >> " + returnValue
-            with prnt_l:
-                print(returnValue)
-            try:
-                connAddr[0].send(json.dumps(["m",returnValue]).encode())
-            except socket.error:
-                continue #Recieve thread will get it, and don't want to risk trying to get 2 connections
+    c,addr = s.accept()
+    c.settimeout(5.0)
+    conns.append((c,addr))
+    with prnt_l:
+        print("Got connection from",addr)
+    threading.Thread(target=mainThread,args=(c,addr)).start()

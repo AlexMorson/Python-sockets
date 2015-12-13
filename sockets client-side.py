@@ -41,12 +41,19 @@ def recieveThread(s):
                 with msg_l:
                     inMessages.append(data[1])
 
+name = input("Enter your name: ")
+
 s = socket.socket()
 host = socket.gethostname()
 port = 12346
 s.connect((host,port))
 s.settimeout(5.0)
 print("Connection:\nHost -",host,"\nPort -",port,"\n")
+
+try:
+    s.send(json.dumps(["m",name]).encode())
+except socket.error:
+    pass
 
 t = threading.Thread(target=recieveThread,args=(s,)).start()
 
